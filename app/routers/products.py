@@ -1,3 +1,5 @@
+from typing import Any, Coroutine
+
 from fastapi import APIRouter, status, HTTPException, Depends
 
 from app.models import Product as ProductTable, Category as CategoryTable
@@ -115,17 +117,67 @@ async def get_product(product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-@router.put("/{product_id}")
-async def update_product(product_id: int):
+@router.put("/{product_id}", response_model=ProductResponse, status_code=200)
+async def update_product(product_id: int, product_upd: ProductCreate, db: Session = Depends(get_db)):
     """
     Обновляет товар по его ID.
     """
-    return {"message": f"Товар {product_id} обновлен (заглушка)"}
+    # Находим продукт
+    product = db.get(ProductTable, product_id)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found"
+        )
+
+    # Получаем данные для обновления
+    update_data = product_upd.model_dump(exclude_unset=True)
+
+    # Если нет данных для обновления
+    if not update_data:
+        return product
+
+    # Проверяем категорию, если она меняется
+    if "category_id" in update_data:
+        category = db.get(CategoryTable, update_data["category_id"])
+    else:
+        # Используем текущую категорию продукта
+        category = db.get(CategoryTable, product.category_id)
+
+    if not category or not category.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Category not found or inactive"
+        )
+
+    # Выполняем обновление
+    db.execute(
+        update(ProductTable)
+        .where(ProductTable.id == product_id)
+        .values(**update_data)
+    )
+    db.commit()
+
+    # Получаем обновленный продукт
+    db.refresh(product)
+
+    return product
 
 
-@router.delete("/{product_id}")
-async def delete_product(product_id: int):
+@router.delete("/{product_id}", status_code=200)
+async def delete_product(product_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
     """
-    Удаляет товар по его ID.
+    Логически удаляет товар по его ID.
     """
-    return {"message": f"Товар {product_id} удален (заглушка)"}
+
+    stmt = select(ProductTable).where(ProductTable.id == product_id, ProductTable.is_active == True)
+    product = db.scalars(stmt).one_or_none()
+
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    product.is_active = False
+
+    db.commit()
+
+    return {"status": "success", "message": "Product marked as inactive"}
