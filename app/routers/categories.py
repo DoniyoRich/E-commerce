@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.models.categories import Category as CategoryModel
 from app.schemas import Category as CategorySchema, CategoryCreate
 from app.db_depends import get_db
+from app.db_depends import get_async_db
 
 # Создаем маршрутизатор с префиксом и тэгом
 router = APIRouter(
@@ -24,7 +26,7 @@ async def get_all_categories(db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=CategorySchema, status_code=status.HTTP_201_CREATED)
-async def create_category(category: CategoryCreate, db: Session = Depends(get_db)):
+async def create_category(category: CategoryCreate, db: AsyncSession = Depends(get_async_db)):
     """
     Создает новую категорию.
     """
@@ -33,7 +35,8 @@ async def create_category(category: CategoryCreate, db: Session = Depends(get_db
         stmt = select(CategoryModel).where(
             CategoryModel.id == category.parent_id, CategoryModel.is_active == True
         )
-        parent = db.scalars(stmt).first()
+        result = await db.scalars(stmt)
+        parent = result.first()
         if parent is None:
             raise HTTPException(status_code=400, detail="Parent category not found")
 
@@ -46,17 +49,14 @@ async def create_category(category: CategoryCreate, db: Session = Depends(get_db
     db.add(db_category)
 
     # вот теперь идет запись в БД, а именно INSERT ....
-    db.commit()
-
-    # Обновляем саму модель Category в контексте Python, т.е. получаем, например, обновленный id.
-    db.refresh(db_category)
+    await db.commit()
 
     return db_category
 
 
 @router.put("/{category_id}", response_model=CategorySchema)
 async def update_category(
-    category_id: int, category: CategoryCreate, db: Session = Depends(get_db)
+        category_id: int, category: CategoryCreate, db: Session = Depends(get_db)
 ):
     """
     Обновляет категорию по ее ID.
