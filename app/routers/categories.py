@@ -96,7 +96,7 @@ async def update_category(
     return db_category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{category_id}", response_model=CategorySchema, status_code=status.HTTP_200_OK)
 async def delete_category(category_id: int, db: AsyncSession = Depends(get_async_db)):
     """
     Выполняет мягкое удаление категории по её ID, устанавливая is_active = False.
@@ -113,5 +113,6 @@ async def delete_category(category_id: int, db: AsyncSession = Depends(get_async
     # Логическое удаление категории (установка is_active-False)
     db_category.is_active = False
     await db.commit()
+    await db.refresh(db_category)
 
-    return {"status": "success", "message": "Category marked as inactive"}
+    return db_category
